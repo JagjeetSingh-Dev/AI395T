@@ -78,5 +78,5 @@ class BigNet(torch.nn.Module):
 def load(path: Path | None) -> BigNet:
     net = BigNet()
     if path is not None:
-        net.load_state_dict(torch.load(path, weights_only=True))
+        net.load_state_dict(torch.load(path, weights_only=False))
     return net
