@@ -84,6 +84,7 @@ class PatchAutoEncoderBase(abc.ABC):
         where h = H // patch_size, w = W // patch_size and bottleneck is the size of the
         AutoEncoders bottleneck.
         """
+        pass
 
     @abc.abstractmethod
     def decode(self, x: torch.Tensor) -> torch.Tensor:
@@ -91,6 +92,7 @@ class PatchAutoEncoderBase(abc.ABC):
         Decode a tensor x (B, h, w, bottleneck) into an image (B, H, W, 3),
         We will train the auto-encoder such that decode(encode(x)) ~= x.
         """
+        pass
 
 
 class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
@@ -105,12 +107,49 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
           However, later parts of the assignment require both non-linearities (i.e. GeLU) and
           interactions (i.e. convolutions) between patches.
     """
+    #torch.parse_schema
+    def __init__(self, patch_size: int = 10, latent_dim: int = 64, bottleneck: int = 32):
+        super().__init__()
+        self.patch_size = patch_size
+        self.latent_dim = latent_dim
+        self.bottleneck = bottleneck
+        
+        # Simple encoder: just patchify and compress
+        self.patchify = PatchifyLinear(patch_size, latent_dim)
+        self.encode_linear = torch.nn.Sequential(
+            torch.nn.Linear(latent_dim, latent_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(latent_dim, bottleneck)
+        )
+        
+        # Simple decoder: expand and unpatchify
+        self.decode_linear = torch.nn.Sequential(
+            torch.nn.Linear(bottleneck, latent_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(latent_dim, latent_dim)
+        )
+        self.unpatchify = UnpatchifyLinear(patch_size, latent_dim)
 
-    class PatchEncoder(torch.nn.Module):
-        """
-        (Optionally) Use this class to implement an encoder.
-                     It can make later parts of the homework easier (reusable components).
-        """
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.patchify(x)        # (B, h, w, latent_dim)
+        x = self.encode_linear(x)   # (B, h, w, bottleneck)
+        return x
+
+    def decode(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.decode_linear(x)   # (B, h, w, latent_dim)
+        x = self.unpatchify(x)      # (B, H, W, 3)
+        return x
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        latent = self.encode(x)
+        x_reconstructed = self.decode(latent)
+        return x_reconstructed, {}
+
+    """class PatchEncoder(torch.nn.Module):
+        
+        #(Optionally) Use this class to implement an encoder.
+                     #It can make later parts of the homework easier (reusable components).
+        
 
         def __init__(self, patch_size: int, latent_dim: int, bottleneck: int):
             super().__init__()
@@ -132,15 +171,15 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
         raise NotImplementedError()
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """
-        Return the reconstructed image and a dictionary of additional loss terms you would like to
-        minimize (or even just visualize).
-        You can return an empty dictionary if you don't have any additional terms.
-        """
+        
+        #Return the reconstructed image and a dictionary of additional loss terms you would like to
+        #minimize (or even just visualize).
+        #You can return an empty dictionary if you don't have any additional terms.
+        
         raise NotImplementedError()
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError()
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        raise NotImplementedError()"""
