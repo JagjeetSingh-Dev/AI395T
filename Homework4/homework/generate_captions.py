@@ -10,19 +10,68 @@ def generate_caption(info_path: str, view_index: int, img_width: int = 150, img_
     """
     Generate caption for a specific view.
     """
-    # 1. Ego car
-    # {kart_name} is the ego car.
-
-    # 2. Counting
-    # There are {num_karts} karts in the scenario.
-
-    # 3. Track name
-    # The track is {track_name}.
-
-    # 4. Relative position
-    # {kart_name} is {position} of the ego car.
-
-    raise NotImplementedError("Not implemented")
+    from .generate_qa import extract_kart_objects, extract_track_info
+    
+    captions = []
+    
+    # Extract kart objects and track info
+    karts = extract_kart_objects(info_path, view_index, img_width, img_height)
+    track_name = extract_track_info(info_path)
+    
+    # If no karts detected, return empty list
+    if not karts:
+        return captions
+    
+    # Find the ego car (center kart)
+    ego_kart = None
+    for kart in karts:
+        if kart["is_center_kart"]:
+            ego_kart = kart
+            break
+    
+    # If no ego car found, return empty list
+    if ego_kart is None:
+        return captions
+    
+    # 1. Ego car caption
+    captions.append(f"{ego_kart['kart_name']} is the ego car.")
+    
+    # 2. Counting caption
+    captions.append(f"There are {len(karts)} karts in the scenario.")
+    
+    # 3. Track name caption
+    captions.append(f"The track is {track_name}.")
+    
+    # Get ego car position
+    ego_x, ego_y = ego_kart["center"]
+    
+    # 4. Relative position captions for each non-ego kart
+    for kart in karts:
+        if kart["is_center_kart"]:
+            continue  # Skip ego car
+        
+        kart_x, kart_y = kart["center"]
+        kart_name = kart["kart_name"]
+        
+        # Determine position relative to ego car
+        # Horizontal position
+        if kart_x < ego_x:
+            horizontal = "left"
+        else:
+            horizontal = "right"
+        
+        # Vertical position (lower y = front in image coordinates)
+        if kart_y < ego_y:
+            vertical = "front"
+        else:
+            vertical = "behind"
+        
+        # Create position description
+        position = f"to the {horizontal} and {vertical}"
+        
+        captions.append(f"{kart_name} is {position} of the ego car.")
+    
+    return captions
 
 
 def check_caption(info_file: str, view_index: int):
