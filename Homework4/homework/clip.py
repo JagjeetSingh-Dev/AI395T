@@ -101,8 +101,19 @@ class CLIP(nn.Module):
         super().__init__()
         self.vision_encoder = vision_encoder
         self.text_encoder = text_encoder
-        # TODO: implement the rest components
-        raise NotImplementedError("Not implemented")
+        
+        # Get the hidden dimensions from the encoders
+        # Vision encoder output dimension (from the config)
+        vision_hidden_dim = vision_encoder.config.hidden_size
+        # Text encoder output dimension
+        text_hidden_dim = text_encoder.config.hidden_size
+        
+        # Projection layers to map to common embedding space
+        self.vision_projection = nn.Linear(vision_hidden_dim, proj_dim)
+        self.text_projection = nn.Linear(text_hidden_dim, proj_dim)
+        
+        # Temperature parameter for contrastive loss (learnable or fixed)
+        self.temperature = nn.Parameter(torch.tensor(temperature))
 
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         return self.vision_encoder(image)
@@ -180,7 +191,43 @@ class CLIP(nn.Module):
         Returns:
             TODO: think about the what values should be returned
         """
-        raise NotImplementedError("Not implemented")
+        # Encode images through vision encoder
+        # Vision encoder returns a dict-like object with 'last_hidden_state'
+        vision_outputs = self.vision_encoder(pixel_values)
+        # Get the pooled output (CLS token or mean pooling)
+        # For vision models, we typically use the last hidden state and pool it
+        vision_embeds = vision_outputs.last_hidden_state[:, 0, :]  # Take CLS token
+        
+        # Encode text through text encoder
+        text_outputs = self.text_encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask
+        )
+        # Get the pooled output (CLS token or last token)
+        # For text models, we typically use the last hidden state
+        # Get the last token position for each sequence (accounting for padding)
+        if attention_mask is not None:
+            # Get the position of the last non-padded token
+            sequence_lengths = attention_mask.sum(dim=1) - 1
+            batch_size = input_ids.shape[0]
+            # Extract the embedding at the last token position for each sequence
+            text_embeds = text_outputs.last_hidden_state[
+                torch.arange(batch_size, device=input_ids.device), sequence_lengths
+            ]
+        else:
+            # If no attention mask, use the last token
+            text_embeds = text_outputs.last_hidden_state[:, -1, :]
+        
+        # Project to common embedding space
+        vision_features = self.vision_projection(vision_embeds)
+        text_features = self.text_projection(text_embeds)
+        
+        # Normalize features (important for contrastive learning)
+        vision_features = vision_features / vision_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        
+        # Return vision features, text features, and temperature
+        return vision_features, text_features, self.temperature
 
 
 def compute_clip_loss(
@@ -199,7 +246,31 @@ def compute_clip_loss(
     Returns:
         The loss for the CLIP model.
     """
-    raise NotImplementedError("Not implemented")
+    # Unpack outputs
+    vision_features, text_features, temperature = outputs
+    
+    # Compute similarity matrix (cosine similarity scaled by temperature)
+    # vision_features: (batch_size, proj_dim)
+    # text_features: (batch_size, proj_dim)
+    # logits: (batch_size, batch_size)
+    logits = torch.matmul(vision_features, text_features.T) / temperature
+    
+    # Create labels for contrastive loss
+    # In CLIP, each image should match with its corresponding text (diagonal elements)
+    batch_size = vision_features.shape[0]
+    targets = torch.arange(batch_size, device=vision_features.device)
+    
+    # Compute cross-entropy loss in both directions
+    # Image-to-text loss: for each image, predict which text matches
+    loss_i2t = nn.functional.cross_entropy(logits, targets)
+    
+    # Text-to-image loss: for each text, predict which image matches
+    loss_t2i = nn.functional.cross_entropy(logits.T, targets)
+    
+    # Average the two losses (symmetric loss)
+    loss = (loss_i2t + loss_t2i) / 2
+    
+    return loss
 
 
 def get_target_modules_for_lora(model: nn.Module) -> list[str]:
